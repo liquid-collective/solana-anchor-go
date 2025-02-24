@@ -1,4 +1,4 @@
-module github.com/fragmetric-labs/solana-anchor-go
+module github.com/liquid-collective/solana-anchor-go
 
 go 1.22
 
@@ -10,7 +10,10 @@ require (
 	github.com/gagliardetto/solana-go v1.11.0
 	github.com/gagliardetto/treeout v0.1.4
 	github.com/gagliardetto/utilz v0.1.3
+	github.com/henrymbaldwin/solana-anchor-go v0.0.0-20241028224035-e8d02d02e033
+	github.com/mr-tron/base58 v1.2.0
 	github.com/stretchr/testify v1.9.0
+	github.com/vmihailenco/msgpack/v5 v5.4.1
 	golang.org/x/mod v0.19.0
 )
 
@@ -35,11 +38,9 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/mostynb/zstdpool-freelist v0.0.0-20201229113212-927304c0c3b1 // indirect
-	github.com/mr-tron/base58 v1.2.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/streamingfast/logging v0.0.0-20230608130331-f22c91403091 // indirect
-	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	go.mongodb.org/mongo-driver v1.11.0 // indirect
 	go.uber.org/atomic v1.7.0 // indirect

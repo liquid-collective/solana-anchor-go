@@ -122,14 +122,7 @@ func (item *IdlAccountItem) Walk(
 	if previousIndex == nil {
 		previousIndex = &defaultVal
 	}
-	if item.IdlAccount != nil {
-		*previousIndex++
-		doContinue := callback(parentGroupPath, *previousIndex, parentGroup, item.IdlAccount)
-		if !doContinue {
-			return
-		}
-	}
-
+	// If this is a group (has IdlAccounts), process it as a group
 	if item.IdlAccounts != nil {
 		var thisGroupName string
 		if parentGroupPath == "" {
@@ -138,6 +131,13 @@ func (item *IdlAccountItem) Walk(
 			thisGroupName = parentGroupPath + "/" + item.IdlAccounts.Name
 		}
 		item.IdlAccounts.Accounts.Walk(thisGroupName, previousIndex, item.IdlAccounts, callback)
+	} else if item.IdlAccount != nil {
+		// Only process as individual account if it's not a group
+		*previousIndex++
+		doContinue := callback(parentGroupPath, *previousIndex, parentGroup, item.IdlAccount)
+		if !doContinue {
+			return
+		}
 	}
 }
 
@@ -204,9 +204,10 @@ type idlAccountPDA struct {
 }
 
 type idlAccountPDASeed struct {
-	Kind  string `json:"kind"`  // const or account
-	Value []byte `json:"value"` // const
-	Path  string `json:"path,omitempty"`
+	Kind    string `json:"kind"`  // const or account
+	Value   []byte `json:"value"` // const
+	Path    string `json:"path,omitempty"`
+	Account string `json:"account"`
 }
 
 // IdlAccounts is a nested/recursive version of IdlAccount.

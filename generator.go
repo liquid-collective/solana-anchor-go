@@ -9,14 +9,17 @@ import (
 )
 
 const (
-	PkgSolanaGo       = "github.com/gagliardetto/solana-go"
-	PkgSolanaGoText   = "github.com/gagliardetto/solana-go/text"
-	PkgDfuseBinary    = "github.com/gagliardetto/binary"
-	PkgTreeout        = "github.com/gagliardetto/treeout"
-	PkgFormat         = "github.com/gagliardetto/solana-go/text/format"
-	PkgGoFuzz         = "github.com/gagliardetto/gofuzz"
-	PkgMsgpack        = "github.com/vmihailenco/msgpack/v5"
-	PkgTestifyRequire = "github.com/stretchr/testify/require"
+	PkgSolanaGo           = "github.com/gagliardetto/solana-go"
+	PkgSolanaGoText       = "github.com/gagliardetto/solana-go/text"
+	PkgBinary             = "github.com/gagliardetto/binary"
+	PkgTreeout            = "github.com/gagliardetto/treeout"
+	PkgFormat             = "github.com/gagliardetto/solana-go/text/format"
+	PkgGoFuzz             = "github.com/gagliardetto/gofuzz"
+	PkgMsgpack            = "github.com/vmihailenco/msgpack/v5"
+	PkgTestifyRequire     = "github.com/stretchr/testify/require"
+	PkgSolanaGoRpc        = "github.com/gagliardetto/solana-go/rpc"
+	PkgSolanaGoRpcJsonrpc = "github.com/gagliardetto/solana-go/rpc/jsonrpc"
+	PkgBase58             = "github.com/mr-tron/base58"
 )
 
 type FileWrapper struct {
@@ -47,9 +50,9 @@ func typeStringToType(ts IdlTypeAsString) *Statement {
 	case IdlTypeI64:
 		stat.Int64()
 	case IdlTypeU128:
-		stat.Qual(PkgDfuseBinary, "Uint128")
+		stat.Qual(PkgBinary, "Uint128")
 	case IdlTypeI128:
-		stat.Qual(PkgDfuseBinary, "Int128")
+		stat.Qual(PkgBinary, "Int128")
 	case IdlTypeBytes:
 		stat.Index().Byte()
 	case IdlTypeString:
@@ -261,7 +264,7 @@ func genTypeDef(idl *IDL, withDiscriminator *[8]byte, def IdlTypeDef) Code {
 		enumTypeName := def.Name
 
 		if def.Type.Variants.IsSimpleEnum() {
-			code.Type().Id(enumTypeName).Qual(PkgDfuseBinary, "BorshEnum")
+			code.Type().Id(enumTypeName).Qual(PkgBinary, "BorshEnum")
 			code.Line().Const().Parens(DoGroup(func(gr *Group) {
 				for variantIndex, variant := range *def.Type.Variants {
 
@@ -309,7 +312,7 @@ func genTypeDef(idl *IDL, withDiscriminator *[8]byte, def IdlTypeDef) Code {
 			// Declare the enum variants container (non-exported, used internally)
 			code.Type().Id(containerName).StructFunc(
 				func(structGroup *Group) {
-					structGroup.Id("Enum").Qual(PkgDfuseBinary, "BorshEnum").Tag(map[string]string{
+					structGroup.Id("Enum").Qual(PkgBinary, "BorshEnum").Tag(map[string]string{
 						"borsh_enum": "true",
 					})
 
@@ -370,7 +373,7 @@ func genTypeDef(idl *IDL, withDiscriminator *[8]byte, def IdlTypeDef) Code {
 						Params(
 							ListFunc(func(params *Group) {
 								// Parameters:
-								params.Id("encoder").Op("*").Qual(PkgDfuseBinary, "Encoder")
+								params.Id("encoder").Op("*").Qual(PkgBinary, "Encoder")
 							}),
 						).
 						Params(
@@ -389,7 +392,7 @@ func genTypeDef(idl *IDL, withDiscriminator *[8]byte, def IdlTypeDef) Code {
 						Params(
 							ListFunc(func(params *Group) {
 								// Parameters:
-								params.Id("decoder").Op("*").Qual(PkgDfuseBinary, "Decoder")
+								params.Id("decoder").Op("*").Qual(PkgBinary, "Decoder")
 							}),
 						).
 						Params(
@@ -475,7 +478,7 @@ func genMarshalWithEncoder_struct(
 			Params(
 				ListFunc(func(params *Group) {
 					// Parameters:
-					params.Id("encoder").Op("*").Qual(PkgDfuseBinary, "Encoder")
+					params.Id("encoder").Op("*").Qual(PkgBinary, "Encoder")
 				}),
 			).
 			Params(
@@ -598,7 +601,7 @@ func genUnmarshalWithDecoder_struct(
 			Params(
 				ListFunc(func(params *Group) {
 					// Parameters:
-					params.Id("decoder").Op("*").Qual(PkgDfuseBinary, "Decoder")
+					params.Id("decoder").Op("*").Qual(PkgBinary, "Decoder")
 				}),
 			).
 			Params(

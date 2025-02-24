@@ -50,7 +50,7 @@ func genTestingFuncs(idl IDL) ([]*FileWrapper, error) {
 				BlockFunc(func(body *Group) {
 					// Body:
 					body.If(
-						Err().Op(":=").Qual(PkgDfuseBinary, GetConfig().Encoding._NewEncoder()).Call(Id("buf")).Dot("Encode").Call(Id("data")),
+						Err().Op(":=").Qual(PkgBinary, GetConfig().Encoding._NewEncoder()).Call(Id("buf")).Dot("Encode").Call(Id("data")),
 						Err().Op("!=").Nil(),
 					).Block(
 						Return(Qual("fmt", "Errorf").Call(Lit("unable to encode instruction: %w"), Err())),
@@ -77,7 +77,7 @@ func genTestingFuncs(idl IDL) ([]*FileWrapper, error) {
 				).
 				BlockFunc(func(body *Group) {
 					// Body:
-					body.Return(Qual(PkgDfuseBinary, GetConfig().Encoding._NewDecoder()).Call(Id("data")).Dot("Decode").Call(Id("dst")))
+					body.Return(Qual(PkgBinary, GetConfig().Encoding._NewDecoder()).Call(Id("data")).Dot("Decode").Call(Id("dst")))
 				})
 			file.Add(code.Line())
 		}
