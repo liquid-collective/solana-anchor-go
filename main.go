@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/davecgh/go-spew/spew"
-	"github.com/gagliardetto/solana-go"
 	"io/ioutil"
 	"os"
 	"path"
@@ -16,10 +14,13 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/dave/jennifer/jen"
 	. "github.com/dave/jennifer/jen"
-	"github.com/fragmetric-labs/solana-anchor-go/sighash"
+	"github.com/davecgh/go-spew/spew"
 	bin "github.com/gagliardetto/binary"
+	"github.com/gagliardetto/solana-go"
 	. "github.com/gagliardetto/utilz"
+	"github.com/henrymbaldwin/solana-anchor-go/sighash"
 	"golang.org/x/mod/modfile"
 )
 
@@ -105,24 +106,24 @@ func main() {
 					OrangeBG("[?]"),
 				)
 			}
-			//if len(idl.Events) > 0 {
+			// if len(idl.Events) > 0 {
 			//	Sfln(
 			//		"%s idl.Events is defined, but generator is not implemented yet.",
 			//		OrangeBG("[?]"),
 			//	)
-			//}
-			//if len(idl.Errors) > 0 {
+			// }
+			// if len(idl.Errors) > 0 {
 			//	Sfln(
 			//		"%s idl.Errors is defined, but generator is not implemented yet.",
 			//		OrangeBG("[?]"),
 			//	)
-			//}
-			//if len(idl.Constants) > 0 {
+			// }
+			// if len(idl.Constants) > 0 {
 			//	Sfln(
 			//		"%s idl.Constants is defined, but generator is not implemented yet.",
 			//		OrangeBG("[?]"),
 			//	)
-			//}
+			// }
 		}
 
 		// spew.Dump(idl)
@@ -165,7 +166,7 @@ func main() {
 			mdf.AddNewRequire("github.com/davecgh/go-spew", "v1.1.1", false)
 			mdf.Cleanup()
 
-			//callbacks = append(callbacks, func() {
+			// callbacks = append(callbacks, func() {
 			//	Ln()
 			//	Ln(Bold("Don't forget to import the necessary dependencies!"))
 			//	Ln()
@@ -177,7 +178,7 @@ func main() {
 			//		)
 			//	}
 			//	Ln()
-			//})
+			// })
 
 			if GetConfig().ModPath != "" {
 				mfBytes, err := mdf.Format()
@@ -256,6 +257,9 @@ func GenerateClientFromProgramIDL(idl IDL) ([]*FileWrapper, error) {
 
 	// configurable address map
 	addresses := make(map[string]string)
+
+	// map to store account addresses
+	accountAddresses := make(map[string]string)
 
 	files := make([]*FileWrapper, 0)
 	{
@@ -343,7 +347,6 @@ func DecodeInstructions(message *ag_solanago.Message) (instructions []*Instructi
 
 	{
 		file := NewGoFile(idl.Metadata.Name, true)
-
 		// Declare account layouts from IDL:
 		for _, evt := range idl.Events {
 			if _, ok := defs[evt.Name]; ok {
@@ -374,19 +377,21 @@ func DecodeInstructions(message *ag_solanago.Message) (instructions []*Instructi
 			}
 		})))
 
-		// TODO: refactor it
-		// to generate import statements
-		file.Add(Empty().Var().Defs(Id("_").Op("*").Qual("strings", "Builder").Op("=").Nil()))
-		file.Add(Empty().Var().Defs(Id("_").Op("*").Qual("encoding/base64", "Encoding").Op("=").Nil()))
-		file.Add(Empty().Var().Defs(Id("_").Op("*").Qual(PkgDfuseBinary, "Decoder").Op("=").Nil())) // TODO: ..
-		file.Add(Empty().Var().Defs(Id("_").Op("*").Qual("github.com/gagliardetto/solana-go/rpc", "GetTransactionResult").Op("=").Nil()))
-		file.Add(Empty().Var().Defs(Id("_").Op("*").Qual("github.com/mr-tron/base58", "Alphabet").Op("=").Nil()))
-
+		file.Add(Var().Defs(
+			Id("_").Op("*").Qual("strings", "Builder").Op("=").Nil(),
+			Id("_").Op("*").Qual("encoding/base64", "Encoding").Op("=").Nil(),
+			Id("_").Op("*").Qual(PkgBinary, "Decoder").Op("=").Nil(),
+			Id("_").Op("*").Qual("fmt", "Formatter").Op("=").Nil(),
+			Id("_").Op("*").Qual(PkgSolanaGo, "PublicKey").Op("=").Nil(),
+			Id("_").Op("*").Qual(PkgSolanaGoRpc, "GetTransactionResult").Op("=").Nil(),
+			Id("_").Op("*").Qual(PkgSolanaGoRpcJsonrpc, "RPCError").Op("=").Nil(),
+			Id("_").Op("*").Qual(PkgBase58, "Alphabet").Op("=").Nil(),
+		))
 		file.Add(Empty().Id(`
 type Event struct {
 	Name string
 	Data EventData
-}
+}	
 
 type EventData interface {
 	UnmarshalWithDecoder(decoder *ag_binary.Decoder) error
@@ -722,6 +727,15 @@ func decodeErrorCode(rpcErr error) (errorCode int, ok bool) {
 		}
 
 		{
+			{
+				code := Empty()
+				code.Comment("isEventData is a marker function to indicate that this struct is an event data struct.").Line()
+				code.Func().Params(Id("u").Op("*").Id(insExportedName)).Id("isEventData").Params().Block()
+				file.Add(code.Line())
+			}
+		}
+
+		{
 			builderFuncName := formatBuilderFuncName(insExportedName)
 			code := Empty()
 			code.Commentf(
@@ -758,9 +772,10 @@ func decodeErrorCode(rpcErr error) (errorCode int, ok bool) {
 								panic(account)
 							}
 						} else if account.Address != "" {
-							//def := Qual(PkgSolanaGo, "Meta").Call(Qual(PkgSolanaGo, "MustPublicKeyFromBase58").Call(Lit(account.Address)))
+							// def := Qual(PkgSolanaGo, "Meta").Call(Qual(PkgSolanaGo, "MustPublicKeyFromBase58").Call(Lit(account.Address)))
 							def := Qual(PkgSolanaGo, "Meta").Call(Id("Addresses").Index(Lit(account.Address)))
 							addresses[account.Address] = account.Address
+							accountAddresses[account.Name] = account.Address
 							if account.Writable {
 								def.Dot("WRITE").Call()
 							}
@@ -776,7 +791,110 @@ func decodeErrorCode(rpcErr error) (errorCode int, ok bool) {
 				})
 			file.Add(code.Line())
 		}
+		{
+			builderFuncName := formatBuilderFuncName(insExportedName) + "Ext"
+			code := Empty()
+			code.Commentf(
+				"%s creates a new `%s` instruction builder.",
+				builderFuncName,
+				insExportedName,
+			).Line()
 
+			code.Func().Id(builderFuncName).Params(Id("remainingAccounts").Int()).Op("*").Id(insExportedName).
+				BlockFunc(func(body *Group) {
+					body.Id("nd").Op(":=").Op("&").Id(insExportedName).Block(
+						Id("AccountMetaSlice").Op(":").Make(Qual(PkgSolanaGo, "AccountMetaSlice"), Lit(instruction.Accounts.NumAccounts()).Op("+").Id("remainingAccounts")).Op(","),
+					)
+
+					// Set sysvar accounts and constant accounts:
+					instruction.Accounts.Walk("", nil, nil, func(parentGroupPath string, index int, parentGroup *IdlAccounts, account *IdlAccount) bool {
+						if isVar(account.Name) {
+							pureVarName := getSysVarName(account.Name)
+							is := isSysVar(pureVarName)
+							if is {
+								_, ok := sysVars[pureVarName]
+								if !ok {
+									panic(account)
+								}
+								def := Qual(PkgSolanaGo, "Meta").Call(Qual(PkgSolanaGo, pureVarName))
+								if account.Writable {
+									def.Dot("WRITE").Call()
+								}
+								if account.Signer {
+									def.Dot("SIGNER").Call()
+								}
+								body.Id("nd").Dot("AccountMetaSlice").Index(Lit(index)).Op("=").Add(def)
+							} else {
+								panic(account)
+							}
+						} else if account.Address != "" {
+							def := Qual(PkgSolanaGo, "Meta").Call(Id("Addresses").Index(Lit(account.Address)))
+							addresses[account.Address] = account.Address
+							accountAddresses[account.Name] = account.Address
+							if account.Writable {
+								def.Dot("WRITE").Call()
+							}
+							if account.Signer {
+								def.Dot("SIGNER").Call()
+							}
+							body.Id("nd").Dot("AccountMetaSlice").Index(Lit(index)).Op("=").Add(def)
+						} else if account.PDA != nil {
+							// Handle PDA accounts
+							seeds := make([]Code, 0)
+							for _, seed := range account.PDA.Seeds {
+								if seed.Kind == "const" {
+									seeds = append(seeds, Index().Byte().ValuesFunc(func(group *Group) {
+										for _, v := range seed.Value {
+											group.LitByte(v)
+										}
+									}))
+								} else if seed.Kind == "account" {
+									address, ok := accountAddresses[seed.Path]
+									if !ok {
+										seeds = append(seeds, Qual(PkgSolanaGo, "Meta").Call(Id("Addresses").Index(Lit(seed.Path))).Dot("PublicKey").Dot("Bytes").Call())
+										continue
+									}
+									seeds = append(seeds, Qual(PkgSolanaGo, "MustPublicKeyFromBase58").Call(Lit(address)).Dot("Bytes").Call())
+								}
+							}
+							var program Code
+							if account.PDA.Program != nil {
+								switch account.PDA.Program.Kind {
+								case "const":
+									programID := solana.PublicKeyFromBytes(account.PDA.Program.Value)
+									program = Qual(PkgSolanaGo, "MustPublicKeyFromBase58").Call(Lit(programID.String())).Dot("String").Call()
+								case "account":
+									address, ok := accountAddresses[account.PDA.Program.Path]
+									if ok {
+										seeds = append(seeds, Qual(PkgSolanaGo, "MustPublicKeyFromBase58").Call(Lit(address)).Dot("Bytes").Call())
+										program = Qual(PkgSolanaGo, "MustPublicKeyFromBase58").Call(Lit(address)).Dot("String").Call()
+									} else {
+										seeds = append(seeds, Values(Qual(PkgSolanaGo, "Meta").Call(Id("Addresses").Index(Lit(account.PDA.Program.Path))).Dot("PublicKey").Dot("Bytes").Call()))
+									}
+								default:
+									panic(fmt.Sprintf("unsupported program kind: %s", account.PDA.Program.Kind))
+								}
+							}
+
+							if program != nil {
+								def := Qual(PkgSolanaGo, "Meta").Call(Qual(GetConfig().Package, "CreatePDA").Call(program, List(seeds...)))
+								if account.Writable {
+									def.Dot("WRITE").Call()
+								}
+								if account.Signer {
+									def.Dot("SIGNER").Call()
+								}
+								body.Id("nd").Dot("AccountMetaSlice").Index(Lit(index)).Op("=").Add(def)
+							}
+						}
+						return true
+					})
+
+					body.Return(Id("nd"))
+				})
+
+			file.Add(code.Line())
+		}
 		{
 			// Declare methods that set the parameters of the instruction:
 			code := Empty()
@@ -912,12 +1030,32 @@ func decodeErrorCode(rpcErr error) (errorCode int, ok bool) {
 						lowerAccountName,
 						instruction.Accounts,
 						addresses,
+						accountAddresses,
+						instruction.Args,
+						&idl,
 					))
 					groupMemberIndex++
 				}
 				return true
 			})
 
+			file.Add(code.Line())
+		}
+		{
+			// Declare `AddRemainingAccounts` method on instruction:
+			code := Empty()
+			code.Comment("AddRemainingAccounts method is a function that allows you to add additional accounts beyond the predefined ones in the instruction.").Line().Func().Params(Id("inst").Op("*").Id(insExportedName)).Id("AddRemainingAccounts").Params(
+				Id("remainingAccounts").Index().Qual(PkgSolanaGo, "PublicKey"),
+			).Params(Op("*").Id(insExportedName)).
+				Block(
+					jen.Id("accounts").Op(":=").Lit(instruction.Accounts.NumAccounts()),
+					jen.For(
+						jen.Id("i").Op(",").Id("_").Op(":=").Range().Id("remainingAccounts"),
+					).Block(
+						jen.Id("index").Op(":=").Id("accounts").Op("+").Id("i"),
+						jen.Id("inst").Dot("AccountMetaSlice").Index(jen.Id("index")).Op("=").Qual(PkgSolanaGo, "NewAccountMeta").Call(jen.Id("remainingAccounts").Index(jen.Id("i")), jen.True(), jen.False())),
+					Return(Id("inst")),
+				)
 			file.Add(code.Line())
 		}
 		{
@@ -947,7 +1085,7 @@ func decodeErrorCode(rpcErr error) (errorCode int, ok bool) {
 								TypeIDUvarint32,
 							},
 							func() {
-								typeIDCode = Qual(PkgDfuseBinary, "TypeIDFromUvarint32").Call(Id("Instruction_" + insExportedName))
+								typeIDCode = Qual(PkgBinary, "TypeIDFromUvarint32").Call(Id("Instruction_" + insExportedName))
 							},
 						).
 						On(
@@ -955,7 +1093,7 @@ func decodeErrorCode(rpcErr error) (errorCode int, ok bool) {
 								TypeIDUint32,
 							},
 							func() {
-								typeIDCode = Qual(PkgDfuseBinary, "TypeIDFromUint32").Call(Id("Instruction_"+insExportedName), Qual("encoding/binary", "LittleEndian"))
+								typeIDCode = Qual(PkgBinary, "TypeIDFromUint32").Call(Id("Instruction_"+insExportedName), Qual("encoding/binary", "LittleEndian"))
 							},
 						).
 						On(
@@ -963,7 +1101,7 @@ func decodeErrorCode(rpcErr error) (errorCode int, ok bool) {
 								TypeIDUint8,
 							},
 							func() {
-								typeIDCode = Qual(PkgDfuseBinary, "TypeIDFromUint8").Call(Id("Instruction_" + insExportedName))
+								typeIDCode = Qual(PkgBinary, "TypeIDFromUint8").Call(Id("Instruction_" + insExportedName))
 							},
 						).
 						On(
@@ -985,7 +1123,7 @@ func decodeErrorCode(rpcErr error) (errorCode int, ok bool) {
 
 					body.Return().Op("&").Id("Instruction").Values(
 						Dict{
-							Id("BaseVariant"): Qual(PkgDfuseBinary, "BaseVariant").Values(
+							Id("BaseVariant"): Qual(PkgBinary, "BaseVariant").Values(
 								Dict{
 									Id("TypeID"): typeIDCode,
 									Id("Impl"):   Id("inst"),
@@ -1325,7 +1463,7 @@ func decodeErrorCode(rpcErr error) (errorCode int, ok bool) {
 
 			file.Add(code.Line())
 		}
-		////
+		// //
 		files = append(files, &FileWrapper{
 			Name: strings.ToLower(insExportedName),
 			File: file,
@@ -1336,7 +1474,7 @@ func decodeErrorCode(rpcErr error) (errorCode int, ok bool) {
 	{
 		file := NewGoFile(idl.Metadata.Name, false)
 		code := Empty().Var().Id("Addresses").Op("=").Map(String()).Qual(PkgSolanaGo, "PublicKey").Values(DictFunc(func(dict Dict) {
-			for address, _ := range addresses {
+			for address := range addresses {
 				dict[Lit(address)] = Qual(PkgSolanaGo, "MustPublicKeyFromBase58").Call(Lit(address))
 			}
 		}))
@@ -1387,6 +1525,41 @@ func decodeErrorCode(rpcErr error) (errorCode int, ok bool) {
 		})
 	}
 
+	// add pdas file and CreatePDA method
+	{
+		file := NewGoFile(idl.Metadata.Name, false)
+		// to generate import statements
+		file.Add(Var().Defs(
+			Id("_").Op("*").Qual("github.com/gagliardetto/solana-go", "PublicKey").Op("=").Nil(),
+			Id("_").Op("*").Qual("fmt", "Formatter").Op("=").Nil(),
+		))
+
+		file.Add(Empty().Id(`
+// CreatePDA creates a Program Derived Address (PDA) for the given seeds and program ID.
+// CreatePDA creates a Program Derived Address (PDA) for the given seeds and program ID.
+func CreatePDA(programID string, seeds ...[]byte) ag_solanago.PublicKey {
+	// Convert the program ID to a PublicKey
+	programPubKey, err := ag_solanago.PublicKeyFromBase58(programID)
+	if err != nil {
+		panic(err)
+	}
+
+	// Find the PDA
+	pda, err := ag_solanago.CreateProgramAddress(seeds, programPubKey)
+	if err != nil {
+		panic(err)
+	}
+
+	return pda
+}
+`))
+
+		files = append(files, &FileWrapper{
+			Name: "programderivedaccounts",
+			File: file,
+		})
+	}
+
 	{
 		testFiles, err := genTestingFuncs(idl)
 		if err != nil {
@@ -1395,8 +1568,116 @@ func decodeErrorCode(rpcErr error) (errorCode int, ok bool) {
 		files = append(files, testFiles...)
 	}
 
+	{
+		file := NewGoFile(idl.Metadata.Name, false)
+		// to generate import statements
+		file.Add(Var().Defs(
+			Id("_").Op("*").Qual("github.com/gagliardetto/solana-go", "PublicKey").Op("=").Nil(),
+			Id("_").Op("*").Qual("fmt", "Formatter").Op("=").Nil(),
+			Id("_").Op("*").Qual(PkgBinary, "Decoder").Op("=").Nil(),
+			Id("_").Op("*").Qual(PkgSolanaGoRpc, "Client").Op("=").Nil(),
+			Id("_").Op("*").Qual(PkgBase58, "Alphabet").Op("=").Nil(),
+			Id("_").Op("*").Qual("reflect", "Type").Op("=").Nil(),
+		))
+
+		file.Add().Empty().Var().Id("innerInstructionTypes").Op("=").Map(Index(Lit(8)).Byte()).Qual("reflect", "Type").Values(DictFunc(func(d Dict) {
+			for _, ins := range idl.Instructions {
+				insExportedName := ToCamel(ins.Name)
+				d[Id("Instruction_"+insExportedName)] = Id("reflect.TypeOf(" + insExportedName + "{})")
+			}
+		}))
+
+		file.Add(Empty().Var().Id("innerInstructionToNames").Op("=").Map(Index(Lit(8)).Byte()).String().Values(DictFunc(func(d Dict) {
+			for _, ins := range idl.Instructions {
+				insExportedName := ToCamel(ins.Name)
+				d[Id("Instruction_"+insExportedName)] = Lit(ins.Name)
+			}
+		})))
+
+		file.Add(Empty().Var().Id("innerInstructionToEventName").Op("=").Map(Index(Lit(8)).Byte()).String().Values(DictFunc(func(d Dict) {
+			for _, ins := range idl.Instructions {
+				insExportedName := ToCamel(ins.Name)
+				d[Id("Instruction_"+insExportedName)] = Lit(ToCamel(ins.Name))
+			}
+		})))
+
+		file.Add().Empty().Id(
+			`
+
+type InnerInstructionEvent struct {
+	Name     string
+	Data     EventData
+}
+
+func DecodeInnerInstructions(txData *ag_rpc.GetTransactionResult, targetProgramId ag_solanago.PublicKey) (events []*InnerInstructionEvent, err error) {
+	var innerInstructions []*InnerInstructionEvent
+
+	var tx *ag_solanago.Transaction
+	if tx, err = txData.Transaction.GetTransaction(); err != nil {
+		return nil, err
+	}
+
+	for _, innerInstruction := range txData.Meta.InnerInstructions {
+		for _, instruction := range innerInstruction.Instructions {
+			if tx.Message.AccountKeys[instruction.ProgramIDIndex] != targetProgramId {
+				continue
+			}
+
+			rawData, err := ag_base58.Decode(instruction.Data.String())
+			if err != nil {
+				return nil, fmt.Errorf("error decoding instruction data from Base58: %w", err)
+			}
+
+
+			discriminator := ag_binary.TypeID(rawData[:8])
+
+			if eventType, ok := innerInstructionTypes[discriminator]; ok {
+				eventData := reflect.New(eventType).Interface().(EventData)
+				decoder := ag_binary.NewBorshDecoder(rawData[8:])
+				if err := decoder.Decode(eventData); err != nil {
+					return nil, fmt.Errorf("error decoding instruction: %w", err)
+				}
+				event := &InnerInstructionEvent{
+					Name:     innerInstructionToEventName[discriminator],
+					Data:     eventData,
+				}
+
+				accounts:= make(ag_solanago.AccountMetaSlice, len(instruction.Accounts))
+				for i, accIndex := range instruction.Accounts {
+					accounts[i] = &ag_solanago.AccountMeta{PublicKey: tx.Message.AccountKeys[accIndex]}
+				}
+
+				// add accounts to event
+				if v, ok:= event.Data.(ag_solanago.AccountsSettable); ok {
+					err := v.SetAccounts(accounts)
+					if err != nil {
+						return nil, fmt.Errorf("error setting accounts for instruction: %w", err)
+					}
+				} 
+				
+				innerInstructions = append(innerInstructions, event)
+			}
+		}
+	}
+
+	return innerInstructions, nil
+}
+
+`)
+
+		files = append(files, &FileWrapper{
+			Name: "innerinstructions",
+			File: file,
+		})
+	}
+
 	return files, nil
 }
+
+//
+// func findAddressForAccountPath(idl IDL, p string) string {
+//
+// }
 
 func genAccountGettersSetters(
 	receiverTypeName string,
@@ -1406,6 +1687,9 @@ func genAccountGettersSetters(
 	lowerAccountName string,
 	accounts []IdlAccountItem,
 	addresses map[string]string,
+	accountAddresses map[string]string,
+	args []IdlField,
+	idl *IDL,
 ) Code {
 	code := Empty()
 
@@ -1447,52 +1731,7 @@ func genAccountGettersSetters(
 			})
 	}
 
-	{ // create PDA helper
-		/**
-		func (inst *FooInstruction) FindUserTokenAmountAccountAddress(user ag_solanago.PublicKey) (pda ag_solanago.PublicKey, bumpSeed uint8, err error) {
-			pda, bumpSeed, err = findUserTokenAmountAccountAddress(user, 0)
-			return
-		}
-
-		func (inst *FooInstruction) FindUserTokenAmountAccountAddress(user ag_solanago.PublicKey) (pda ag_solanago.PublicKey, bumpSeed uint8, err error) {
-			pda, bumpSeed, err = findUserTokenAmountAccountAddress(user, 0)
-			return
-		}
-
-		func (inst *FooInstruction) MustFindUserTokenAmountAccountAddress(user ag_solanago.PublicKey) (pda ag_solanago.PublicKey) {
-			pda, _, err := findUserTokenAmountAccountAddress(user)
-			if err != nil {
-				panic(err)
-			}
-			return
-		}
-
-		func (inst *FooInstruction) FindUserTokenAmountAccountAddress(user ag_solanago.PublicKey) (pda ag_solanago.PublicKey, bumpSeed uint8, err error) {
-			pda, bumpSeed, err = findUserTokenAmountAccountAddress(user, 0)
-			return
-		}
-
-		func (inst *FooInstruction) MustFindUserTokenAmountAccountAddressWithBumpSeed(user ag_solanago.PublicKey, bumpSeed uint8) (pda ag_solanago.PublicKey) {
-			pda, _, err := findUserTokenAmountAccountAddress(user, bumpSeed)
-			if err != nil {
-				panic(err)
-			}
-			return
-		}
-
-		func findUserTokenAmountAccountAddress(user ag_solanago.PublicKey, knownBumpSeed uint8) (pda ag_solanago.PublicKey, bumpSeed uint8, err error) {
-			var seeds [][]byte
-			seeds = append(seeds, []byte{1,2,3})
-			seeds = append(seeds, user.Bytes())
-			if knownBumpSeed != 0 {
-				seeds = append(seeds, []byte{byte(bumpSeed)})
-				pda, err = ag_solanago.CreateProgramAddress(seeds, ProgramID)
-			} else {
-				pda, bumpSeed, err = ag_solanago.FindProgramAddress(seeds, ProgramID)
-			}
-			return
-		}
-		*/
+	{
 		if account.PDA != nil {
 			code.Line().Line()
 			accessorName := strings.TrimSuffix(formatAccountAccessorName("Find", exportedAccountName), "Account") + "Address"
@@ -1500,14 +1739,25 @@ func genAccountGettersSetters(
 			// find seeds
 			seedValues := make([][]byte, len(account.PDA.Seeds))
 			seedRefs := make([]string, len(account.PDA.Seeds))
-			seedArgs := make([]string, len(account.PDA.Seeds))
+			seedTypes := make([]IdlType, len(account.PDA.Seeds))
 
-			var seedProgramValue *[]byte
+			var seedProgramValue []byte
 			if account.PDA.Program != nil {
-				if account.PDA.Program.Value == nil {
-					panic("cannot handle non-const type program value in PDA seeds")
+				switch account.PDA.Program.Kind {
+				case "const":
+					if account.PDA.Program.Value == nil {
+						panic("cannot handle non-const type program value in PDA seeds" + account.Address)
+					}
+					seedProgramValue = account.PDA.Program.Value
+				case "account":
+					address, ok := accountAddresses[account.PDA.Program.Path]
+					if !ok {
+						panic("cannot find related account for PDA program " + account.PDA.Program.Path)
+					}
+					seedProgramValue = solana.MustPublicKeyFromBase58(address).Bytes()
+				default:
+					panic("unsupported PDA program kind: " + account.PDA.Program.Kind)
 				}
-				seedProgramValue = &account.PDA.Program.Value
 			}
 
 		OUTER:
@@ -1515,17 +1765,83 @@ func genAccountGettersSetters(
 				if seedDef.Value != nil { // type: const
 					seedValues[i] = seedDef.Value
 				} else {
+					// First check if it's an account reference
 					for _, acc := range accounts {
 						if acc.IdlAccount.Name == seedDef.Path {
 							seedRefs[i] = ToLowerCamel(acc.IdlAccount.Name)
 							continue OUTER
 						}
-						if seedDef.Kind == "arg" {
-							seedArgs[i] = ToCamel(seedDef.Path)
+					}
+
+					for _, argv := range args {
+						argvName := strings.TrimPrefix(argv.Name, "_")
+						if argvName == seedDef.Path {
+							seedRefs[i] = ToLowerCamel(argv.Name)
+							seedTypes[i] = argv.Type
 							continue OUTER
 						}
 					}
-					panic("cannot find related account path " + seedDef.Path)
+
+					// // Handle non-const program account
+					// if account.PDA.Program != nil && account.PDA.Program.Kind == "account" {
+					//	found := false
+					//	for _, acc := range accounts {
+					//		if acc.IdlAccount.Name == account.PDA.Program.Path {
+					//			seedProgramValue = solana.MustPublicKeyFromBase58(acc.IdlAccount.Address).Bytes()
+					//			found = true
+					//			break
+					//		}
+					//	}
+					//	if !found {
+					//		panic(fmt.Sprintf("cannot find related account for PDA program %s", account.PDA.Program.Path))
+					//	}
+					// }
+
+					// Then check if it's an argument field reference
+					parts := strings.Split(seedDef.Path, ".")
+					if len(parts) == 2 {
+						// Find the argument type
+						var argType IdlType
+						for _, arg := range args {
+							if arg.Name == parts[0] {
+								// Found the argument, now need to find the field type
+								if arg.Type.IsIdlTypeDefined() {
+									// Look up the defined type
+									definedType := idl.Types.GetByName(arg.Type.GetIdlTypeDefined().Defined.Name)
+									if definedType != nil && definedType.Type.Fields != nil {
+										// Find the field
+										for _, field := range *definedType.Type.Fields {
+											if field.Name == parts[1] {
+												argType = field.Type
+												break
+											}
+										}
+									}
+								}
+								break
+							}
+						}
+						for _, typ := range idl.Types {
+							if typ.Name == seedDef.Account {
+								for _, field := range *typ.Type.Fields {
+									if field.Name == parts[1] {
+										argType = field.Type
+										break
+									}
+								}
+							}
+						}
+
+						paramName := ToLowerCamel(parts[0] + "_" + parts[1])
+
+						seedTypes[i] = argType
+
+						// Update the function signature to use the correct type
+						seedRefs[i] = paramName
+						continue OUTER
+					}
+
+					panic(fmt.Sprintf("cannot find related account or argument path %q", seedDef.Path))
 				}
 			}
 
@@ -1534,9 +1850,15 @@ func genAccountGettersSetters(
 				Params(
 					ListFunc(func(params *Group) {
 						// Parameters:
-						for _, seedRef := range seedRefs {
+						for i, seedRef := range seedRefs {
 							if seedRef != "" {
-								params.Id(seedRef).Qual(PkgSolanaGo, "PublicKey")
+								if seedTypes[i].IsArray() && seedTypes[i].GetArray().Elem.GetString() == "u8" {
+									params.Id(seedRef).Index(Lit(32)).Byte()
+								} else if seedTypes[i].asString == "i64" {
+									params.Id(seedRef).Index(Lit(8)).Byte()
+								} else {
+									params.Id(seedRef).Qual(PkgSolanaGo, "PublicKey")
+								}
 							}
 						}
 						params.Id("knownBumpSeed").Uint8()
@@ -1562,31 +1884,26 @@ func genAccountGettersSetters(
 								} else {
 									body.Commentf("const: %s", string(seedValue))
 								}
+								body.Add(Id("seeds").Op("=").Append(Id("seeds"), Index().Byte().ValuesFunc(func(group *Group) {
+									for _, b := range seedValue {
+										group.LitByte(b)
+									}
+								})))
 							} else {
 								body.Commentf("const (raw): %+v", seedValue)
+								body.Add(Id("seeds").Op("=").Append(Id("seeds"), Index().Byte().ValuesFunc(func(group *Group) {
+									for _, v := range seedValue {
+										group.LitByte(v)
+									}
+								})))
 							}
-							body.Add(Id("seeds").Op("=").Append(Id("seeds"), Index().Byte().ValuesFunc(func(group *Group) {
-								for _, v := range seedValue {
-									group.LitByte(v)
-								}
-							})))
 						} else {
 							seedRef := seedRefs[i]
-							if seedRef != "" {
-								body.Commentf("path: %s", seedRef)
+							body.Commentf("path: %s", seedRef)
+							if seedTypes[i].IsArray() && seedTypes[i].GetArray().Elem.GetString() == "u8" {
+								body.Add(Id("seeds").Op("=").Append(Id("seeds"), Id(seedRef).Index())) // Just pass the byte array directly
+							} else {
 								body.Add(Id("seeds").Op("=").Append(Id("seeds"), Id(seedRef).Dot("Bytes").Call()))
-							}
-							seedArg := seedArgs[i]
-							if seedArg != "" {
-								body.Commentf("arg: %s", seedArg)
-								seedArgName := ToLowerCamel(seedArg + "Seed")
-								body.Add(Id(seedArgName).Op(",").Id("err").Op(":=").Qual(PkgMsgpack, "Marshal").Call(Id("inst").Op(".").Id(seedArg)))
-								body.If(
-									Err().Op("!=").Nil(),
-								).Block(
-									Return(),
-								)
-								body.Add(Id("seeds").Op("=").Append(Id("seeds"), Id(seedArgName)))
 							}
 						}
 					}
@@ -1596,12 +1913,7 @@ func genAccountGettersSetters(
 					seedProgramRef := Id("ProgramID")
 					if seedProgramValue != nil {
 						seedProgramRef = Id("programID")
-						//body.Add(Id("programID").Op(":=").Qual(PkgSolanaGo, "PublicKey").Call(Index().Byte().ValuesFunc(func(group *Group) {
-						//	for _, v := range *seedProgramValue {
-						//		group.LitByte(v)
-						//	}
-						//})))
-						address := solana.PublicKeyFromBytes(*seedProgramValue).String()
+						address := solana.PublicKeyFromBytes(seedProgramValue).String()
 						body.Add(Id("programID").Op(":=").Id("Addresses").Index(Lit(address)))
 						addresses[address] = address
 					}
@@ -1628,9 +1940,15 @@ func genAccountGettersSetters(
 				Params(
 					ListFunc(func(params *Group) {
 						// Parameters:
-						for _, seedRef := range seedRefs {
+						for i, seedRef := range seedRefs {
 							if seedRef != "" {
-								params.Id(seedRef).Qual(PkgSolanaGo, "PublicKey")
+								if seedTypes[i].IsArray() && seedTypes[i].GetArray().Elem.GetString() == "u8" {
+									params.Id(seedRef).Index(Lit(32)).Byte()
+								} else if seedTypes[i].asString == "i64" {
+									params.Id(seedRef).Index(Lit(8)).Byte()
+								} else {
+									params.Id(seedRef).Qual(PkgSolanaGo, "PublicKey")
+								}
 							}
 						}
 						params.Id("bumpSeed").Uint8()
@@ -1662,9 +1980,15 @@ func genAccountGettersSetters(
 				Params(
 					ListFunc(func(params *Group) {
 						// Parameters:
-						for _, seedRef := range seedRefs {
+						for i, seedRef := range seedRefs {
 							if seedRef != "" {
-								params.Id(seedRef).Qual(PkgSolanaGo, "PublicKey")
+								if seedTypes[i].IsArray() && seedTypes[i].GetArray().Elem.GetString() == "u8" {
+									params.Id(seedRef).Index(Lit(32)).Byte()
+								} else if seedTypes[i].asString == "i64" {
+									params.Id(seedRef).Index(Lit(8)).Byte()
+								} else {
+									params.Id(seedRef).Qual(PkgSolanaGo, "PublicKey")
+								}
 							}
 						}
 						params.Id("bumpSeed").Uint8()
@@ -1699,9 +2023,15 @@ func genAccountGettersSetters(
 				Params(
 					ListFunc(func(params *Group) {
 						// Parameters:
-						for _, seedRef := range seedRefs {
+						for i, seedRef := range seedRefs {
 							if seedRef != "" {
-								params.Id(seedRef).Qual(PkgSolanaGo, "PublicKey")
+								if seedTypes[i].IsArray() && seedTypes[i].GetArray().Elem.GetString() == "u8" {
+									params.Id(seedRef).Index(Lit(32)).Byte()
+								} else if seedTypes[i].asString == "i64" {
+									params.Id(seedRef).Index(Lit(8)).Byte()
+								} else {
+									params.Id(seedRef).Qual(PkgSolanaGo, "PublicKey")
+								}
 							}
 						}
 					}),
@@ -1733,9 +2063,15 @@ func genAccountGettersSetters(
 				Params(
 					ListFunc(func(params *Group) {
 						// Parameters:
-						for _, seedRef := range seedRefs {
+						for i, seedRef := range seedRefs {
 							if seedRef != "" {
-								params.Id(seedRef).Qual(PkgSolanaGo, "PublicKey")
+								if seedTypes[i].IsArray() && seedTypes[i].GetArray().Elem.GetString() == "u8" {
+									params.Id(seedRef).Index(Lit(32)).Byte()
+								} else if seedTypes[i].asString == "i64" {
+									params.Id(seedRef).Index(Lit(8)).Byte()
+								} else {
+									params.Id(seedRef).Qual(PkgSolanaGo, "PublicKey")
+								}
 							}
 						}
 					}),
@@ -1908,7 +2244,7 @@ func genProgramBoilerplate(idl IDL) (*File, error) {
 								}
 								ins.Id("Instruction_" + insExportedName)
 
-								ins.Op("=").Qual(PkgDfuseBinary, "TypeID").Call(
+								ins.Op("=").Qual(PkgBinary, "TypeID").Call(
 									Index(Lit(8)).Byte().Op("{").ListFunc(func(byteGroup *Group) {
 										sighash := bin.SighashTypeID(bin.SIGHASH_GLOBAL_NAMESPACE, toBeHashed)
 										if instruction.Discriminator != nil {
@@ -1982,7 +2318,7 @@ func genProgramBoilerplate(idl IDL) (*File, error) {
 					code := Empty()
 					code.Comment("InstructionIDToName returns the name of the instruction given its ID.").Line()
 					code.Func().Id("InstructionIDToName").
-						Params(Id("id").Qual(PkgDfuseBinary, "TypeID")).
+						Params(Id("id").Qual(PkgBinary, "TypeID")).
 						Params(String()).
 						BlockFunc(func(body *Group) {
 							body.Switch(Id("id")).BlockFunc(func(switchBlock *Group) {
@@ -2011,7 +2347,7 @@ func genProgramBoilerplate(idl IDL) (*File, error) {
 		{ // Base Instruction struct:
 			code := Empty()
 			code.Type().Id("Instruction").Struct(
-				Qual(PkgDfuseBinary, "BaseVariant"),
+				Qual(PkgBinary, "BaseVariant"),
 			)
 			file.Add(code.Line())
 		}
@@ -2046,20 +2382,20 @@ func genProgramBoilerplate(idl IDL) (*File, error) {
 					func() {
 
 						code := Empty()
-						code.Var().Id("InstructionImplDef").Op("=").Qual(PkgDfuseBinary, "NewVariantDefinition").
+						code.Var().Id("InstructionImplDef").Op("=").Qual(PkgBinary, "NewVariantDefinition").
 							Parens(DoGroup(func(call *Group) {
 								call.Line()
 
 								switch GetConfig().TypeID {
 								case TypeIDUvarint32:
-									call.Qual(PkgDfuseBinary, "Uvarint32TypeIDEncoding").Op(",").Line()
+									call.Qual(PkgBinary, "Uvarint32TypeIDEncoding").Op(",").Line()
 								case TypeIDUint32:
-									call.Qual(PkgDfuseBinary, "Uint32TypeIDEncoding").Op(",").Line()
+									call.Qual(PkgBinary, "Uint32TypeIDEncoding").Op(",").Line()
 								case TypeIDUint8:
-									call.Qual(PkgDfuseBinary, "Uint8TypeIDEncoding").Op(",").Line()
+									call.Qual(PkgBinary, "Uint8TypeIDEncoding").Op(",").Line()
 								}
 
-								call.Index().Qual(PkgDfuseBinary, "VariantType").
+								call.Index().Qual(PkgBinary, "VariantType").
 									BlockFunc(func(variantBlock *Group) {
 										for _, instruction := range idl.Instructions {
 											// NOTE: using `ToCamel` here:
@@ -2081,12 +2417,12 @@ func genProgramBoilerplate(idl IDL) (*File, error) {
 					},
 					func() {
 						code := Empty()
-						code.Var().Id("InstructionImplDef").Op("=").Qual(PkgDfuseBinary, "NewVariantDefinition").
+						code.Var().Id("InstructionImplDef").Op("=").Qual(PkgBinary, "NewVariantDefinition").
 							Parens(DoGroup(func(call *Group) {
 								call.Line()
-								call.Qual(PkgDfuseBinary, "AnchorTypeIDEncoding").Op(",").Line()
+								call.Qual(PkgBinary, "AnchorTypeIDEncoding").Op(",").Line()
 
-								call.Index().Qual(PkgDfuseBinary, "VariantType").
+								call.Index().Qual(PkgBinary, "VariantType").
 									BlockFunc(func(variantBlock *Group) {
 										for _, instruction := range idl.Instructions {
 											// NOTE: using `ToSnakeForSighash` here (necessary for sighash computing from instruction name)
@@ -2156,7 +2492,7 @@ func genProgramBoilerplate(idl IDL) (*File, error) {
 					body.Id("buf").Op(":=").New(Qual("bytes", "Buffer"))
 
 					body.If(
-						Err().Op(":=").Qual(PkgDfuseBinary, GetConfig().Encoding._NewEncoder()).Call(Id("buf")).Dot("Encode").Call(Id("inst")).
+						Err().Op(":=").Qual(PkgBinary, GetConfig().Encoding._NewEncoder()).Call(Id("buf")).Dot("Encode").Call(Id("inst")).
 							Op(";").
 							Err().Op("!=").Nil(),
 					).Block(
@@ -2196,7 +2532,7 @@ func genProgramBoilerplate(idl IDL) (*File, error) {
 				Params(
 					ListFunc(func(params *Group) {
 						// Parameters:
-						params.Id("decoder").Op("*").Qual(PkgDfuseBinary, "Decoder")
+						params.Id("decoder").Op("*").Qual(PkgBinary, "Decoder")
 					}),
 				).
 				Params(
@@ -2218,7 +2554,7 @@ func genProgramBoilerplate(idl IDL) (*File, error) {
 				Params(
 					ListFunc(func(params *Group) {
 						// Parameters:
-						params.Id("encoder").Op("*").Qual(PkgDfuseBinary, "Encoder")
+						params.Id("encoder").Op("*").Qual(PkgBinary, "Encoder")
 					}),
 				).
 				Params(
@@ -2331,7 +2667,7 @@ func genProgramBoilerplate(idl IDL) (*File, error) {
 					body.Id("inst").Op(":=").New(Id("Instruction"))
 
 					body.If(
-						Err().Op(":=").Qual(PkgDfuseBinary, GetConfig().Encoding._NewDecoder()).Call(Id("data")).Dot("Decode").Call(Id("inst")).
+						Err().Op(":=").Qual(PkgBinary, GetConfig().Encoding._NewDecoder()).Call(Id("data")).Dot("Decode").Call(Id("inst")).
 							Op(";").
 							Err().Op("!=").Nil(),
 					).Block(
