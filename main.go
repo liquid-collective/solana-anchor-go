@@ -106,24 +106,24 @@ func main() {
 					OrangeBG("[?]"),
 				)
 			}
-			//if len(idl.Events) > 0 {
+			// if len(idl.Events) > 0 {
 			//	Sfln(
 			//		"%s idl.Events is defined, but generator is not implemented yet.",
 			//		OrangeBG("[?]"),
 			//	)
-			//}
-			//if len(idl.Errors) > 0 {
+			// }
+			// if len(idl.Errors) > 0 {
 			//	Sfln(
 			//		"%s idl.Errors is defined, but generator is not implemented yet.",
 			//		OrangeBG("[?]"),
 			//	)
-			//}
-			//if len(idl.Constants) > 0 {
+			// }
+			// if len(idl.Constants) > 0 {
 			//	Sfln(
 			//		"%s idl.Constants is defined, but generator is not implemented yet.",
 			//		OrangeBG("[?]"),
 			//	)
-			//}
+			// }
 		}
 
 		// spew.Dump(idl)
@@ -166,7 +166,7 @@ func main() {
 			mdf.AddNewRequire("github.com/davecgh/go-spew", "v1.1.1", false)
 			mdf.Cleanup()
 
-			//callbacks = append(callbacks, func() {
+			// callbacks = append(callbacks, func() {
 			//	Ln()
 			//	Ln(Bold("Don't forget to import the necessary dependencies!"))
 			//	Ln()
@@ -178,7 +178,7 @@ func main() {
 			//		)
 			//	}
 			//	Ln()
-			//})
+			// })
 
 			if GetConfig().ModPath != "" {
 				mfBytes, err := mdf.Format()
@@ -772,7 +772,7 @@ func decodeErrorCode(rpcErr error) (errorCode int, ok bool) {
 								panic(account)
 							}
 						} else if account.Address != "" {
-							//def := Qual(PkgSolanaGo, "Meta").Call(Qual(PkgSolanaGo, "MustPublicKeyFromBase58").Call(Lit(account.Address)))
+							// def := Qual(PkgSolanaGo, "Meta").Call(Qual(PkgSolanaGo, "MustPublicKeyFromBase58").Call(Lit(account.Address)))
 							def := Qual(PkgSolanaGo, "Meta").Call(Id("Addresses").Index(Lit(account.Address)))
 							addresses[account.Address] = account.Address
 							accountAddresses[account.Name] = account.Address
@@ -1044,8 +1044,7 @@ func decodeErrorCode(rpcErr error) (errorCode int, ok bool) {
 		{
 			// Declare `AddRemainingAccounts` method on instruction:
 			code := Empty()
-
-			code.Line().Line().Func().Params(Id("inst").Op("*").Id(insExportedName)).Id("AddRemainingAccounts").Params(
+			code.Comment("AddRemainingAccounts method is a function that allows you to add additional accounts beyond the predefined ones in the instruction.").Line().Func().Params(Id("inst").Op("*").Id(insExportedName)).Id("AddRemainingAccounts").Params(
 				Id("remainingAccounts").Index().Qual(PkgSolanaGo, "PublicKey"),
 			).Params(Op("*").Id(insExportedName)).
 				Block(
@@ -1464,7 +1463,7 @@ func decodeErrorCode(rpcErr error) (errorCode int, ok bool) {
 
 			file.Add(code.Line())
 		}
-		////
+		// //
 		files = append(files, &FileWrapper{
 			Name: strings.ToLower(insExportedName),
 			File: file,
@@ -1537,6 +1536,7 @@ func decodeErrorCode(rpcErr error) (errorCode int, ok bool) {
 
 		file.Add(Empty().Id(`
 // CreatePDA creates a Program Derived Address (PDA) for the given seeds and program ID.
+// CreatePDA creates a Program Derived Address (PDA) for the given seeds and program ID.
 func CreatePDA(programID string, seeds ...[]byte) ag_solanago.PublicKey {
 	// Convert the program ID to a PublicKey
 	programPubKey, err := ag_solanago.PublicKeyFromBase58(programID)
@@ -1545,7 +1545,7 @@ func CreatePDA(programID string, seeds ...[]byte) ag_solanago.PublicKey {
 	}
 
 	// Find the PDA
-	pda, _, err := ag_solanago.FindProgramAddress(seeds, programPubKey)
+	pda, err := ag_solanago.CreateProgramAddress(seeds, programPubKey)
 	if err != nil {
 		panic(err)
 	}
@@ -1675,9 +1675,9 @@ func DecodeInnerInstructions(txData *ag_rpc.GetTransactionResult, targetProgramI
 }
 
 //
-//func findAddressForAccountPath(idl IDL, p string) string {
+// func findAddressForAccountPath(idl IDL, p string) string {
 //
-//}
+// }
 
 func genAccountGettersSetters(
 	receiverTypeName string,
@@ -1782,8 +1782,8 @@ func genAccountGettersSetters(
 						}
 					}
 
-					//// Handle non-const program account
-					//if account.PDA.Program != nil && account.PDA.Program.Kind == "account" {
+					// // Handle non-const program account
+					// if account.PDA.Program != nil && account.PDA.Program.Kind == "account" {
 					//	found := false
 					//	for _, acc := range accounts {
 					//		if acc.IdlAccount.Name == account.PDA.Program.Path {
@@ -1795,7 +1795,7 @@ func genAccountGettersSetters(
 					//	if !found {
 					//		panic(fmt.Sprintf("cannot find related account for PDA program %s", account.PDA.Program.Path))
 					//	}
-					//}
+					// }
 
 					// Then check if it's an argument field reference
 					parts := strings.Split(seedDef.Path, ".")
