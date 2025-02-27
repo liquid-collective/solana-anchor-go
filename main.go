@@ -2503,6 +2503,75 @@ func genProgramBoilerplate(idl IDL) (*File, error) {
 			file.Add(code.Line())
 		}
 		{
+			// 'DecodeTypedData() (interface{}, ag_binary.TypeID, error)' method:
+			code := Empty()
+			code.Func().Params(Id("inst").Op("*").Id("Instruction")).Id("DecodeTypedData").
+				Params(
+					ListFunc(func(params *Group) {
+						// Parameters:
+					}),
+				).
+				Params(
+					ListFunc(func(results *Group) {
+						// Results:
+						results.Interface()
+						results.Qual(PkgBinary, "TypeID")
+						results.Error()
+					}),
+				).
+				BlockFunc(func(body *Group) {
+					body.Id("b").Op(",").Err().Op(":=").Id("inst").Dot("Data").Call()
+					body.If(
+						Err().Op("!=").Nil(),
+					).Block(
+						Return(List(Nil(), Qual(PkgBinary, "TypeID{}"), Err())),
+					)
+					body.Line()
+
+					body.Var().Id("typ").Qual(PkgBinary, "TypeID")
+					body.If(
+						Err().Op(":=").Qual(PkgBinary, "NewBorshDecoder").Call(Id("b")).Dot("Decode").Call(Op("&").Id("typ")),
+						Err().Op("!=").Nil(),
+					).Block(
+						Return(List(Nil(), Qual(PkgBinary, "TypeID{}"), Err())),
+					)
+					body.Line()
+
+					body.Var().Id("out").Interface()
+					body.Switch(Id("typ")).BlockFunc(func(switchBlock *Group) {
+						for _, instruction := range idl.Instructions {
+							insExportedName := ToCamel(instruction.Name)
+							switchBlock.Case(Id("Instruction_" + insExportedName)).Block(
+								Id("out").Op("=").New(Id(insExportedName)),
+							)
+						}
+						switchBlock.Default().Block(
+							Return(List(Nil(), Id("typ"), Qual("fmt", "Errorf").Call(Lit("unknown instruction type: %v"), Id("typ")))))
+					})
+					body.Line()
+
+					body.If(
+						Id("v").Op(",").Id("ok").Op(":=").Id("out").Assert(Qual(PkgSolanaGo, "AccountsSettable")),
+						Id("ok"),
+					).Block(
+						Id("v").Dot("SetAccounts").Call(Id("inst").Dot("Accounts").Call()),
+					)
+					body.Line()
+
+					body.If(
+						Err().Op(":=").Qual(PkgBinary, "NewBorshDecoder").Call(Id("b").Index(Lit(8).Op(":"))).Dot("Decode").Call(Id("out")),
+						Err().Op("!=").Nil(),
+					).Block(
+						Return(List(Nil(), Qual(PkgBinary, "TypeID{}"), Err())),
+					)
+					body.Line()
+					body.Return(Id("out"), Id("typ"), Nil())
+
+				})
+			file.Add(code.Line())
+
+		}
+		{
 			// `TextEncode(encoder *text.Encoder, option *text.Option) error` method:
 			code := Empty()
 			code.Func().Params(Id("inst").Op("*").Id("Instruction")).Id("TextEncode").
