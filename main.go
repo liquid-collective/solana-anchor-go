@@ -2542,7 +2542,7 @@ func genProgramBoilerplate(idl IDL) (*File, error) {
 						for _, instruction := range idl.Instructions {
 							insExportedName := ToCamel(instruction.Name)
 							switchBlock.Case(Id("Instruction_" + insExportedName)).Block(
-								Id("out").Op("=").New(Parens(Op("*").Id(insExportedName))),
+								Id("out").Op("=").New(Id(insExportedName)),
 							)
 						}
 						switchBlock.Default().Block(
