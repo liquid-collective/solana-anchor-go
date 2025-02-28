@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -233,15 +234,6 @@ func main() {
 	}
 }
 
-func FormatSighash(buf []byte) string {
-	elems := make([]string, 0)
-	for _, v := range buf {
-		elems = append(elems, strconv.Itoa(int(v)))
-	}
-
-	return "[" + strings.Join(elems, ", ") + "]"
-}
-
 func GenerateClientFromProgramIDL(idl IDL) ([]*FileWrapper, error) {
 	if idl.Address == "" {
 		idl.Address = idl.Metadata.Address
@@ -312,14 +304,44 @@ func DecodeInstructions(message *ag_solanago.Message) (instructions []*Instructi
 	defs := make(map[string]IdlTypeDef)
 	{
 		file := NewGoFile(idl.Metadata.Name, true)
-		// Declare types from IDL:
 		for _, typ := range idl.Types {
 			defs[typ.Name] = typ
+		}
+
+		file.Add(Var().DefsFunc(func(group *Group) {
+			for _, typ := range idl.Types {
+				// only types with 'Event' suffix
+				if !strings.HasSuffix(typ.Name, "Event") {
+					continue
+				}
+
+				if _, ok := defs[typ.Name]; !ok {
+					continue
+				}
+				eventCamel := ToCamel(typ.Name)
+				hash := sha256.Sum256([]byte("event:" + eventCamel))
+				discriminator := [8]byte{}
+				copy(discriminator[:], hash[:8])
+
+				group.Add(Id("Type_"+typ.Name).Op("=").Qual(PkgBinary, "TypeID").Call(Index(Lit(8)).Byte().ValuesFunc(func(byteGroup *Group) {
+					for _, byteVal := range discriminator {
+						byteGroup.Lit(int(byteVal))
+					}
+				})))
+			}
+		})).Line()
+
+		// Declare types from IDL:
+		for _, typ := range idl.Types {
+			if strings.Contains(typ.Name, "Event") {
+				file.Add(Func().Params(Op("*").Id(typ.Name)).Id("isEventData").Params().Block())
+			}
 			file.Add(genTypeDef(&idl, nil, IdlTypeDef{
 				Name: typ.Name,
 				Type: typ.Type,
 			}))
 		}
+
 		files = append(files, &FileWrapper{
 			Name: "types",
 			File: file,
@@ -1578,28 +1600,48 @@ func CreatePDA(programID string, seeds ...[]byte) ag_solanago.PublicKey {
 			Id("_").Op("*").Qual(PkgSolanaGoRpc, "Client").Op("=").Nil(),
 			Id("_").Op("*").Qual(PkgBase58, "Alphabet").Op("=").Nil(),
 			Id("_").Op("*").Qual("reflect", "Type").Op("=").Nil(),
-		))
+		)).Line()
 
 		file.Add().Empty().Var().Id("innerInstructionTypes").Op("=").Map(Index(Lit(8)).Byte()).Qual("reflect", "Type").Values(DictFunc(func(d Dict) {
 			for _, ins := range idl.Instructions {
 				insExportedName := ToCamel(ins.Name)
 				d[Id("Instruction_"+insExportedName)] = Id("reflect.TypeOf(" + insExportedName + "{})")
 			}
-		}))
+		})).Line()
+
+		file.Add().Empty().Var().Id("innerInstructionEventTypes").Op("=").Map(Index(Lit(8)).Byte()).Qual("reflect", "Type").Values(DictFunc(func(d Dict) {
+			for _, typ := range idl.Types {
+				if !strings.HasSuffix(typ.Name, "Event") {
+					continue
+				}
+				insExportedName := ToCamel(typ.Name)
+				d[Id("Type_"+insExportedName)] = Id("reflect.TypeOf(" + insExportedName + "{})")
+			}
+		})).Line()
+
+		file.Add(Empty().Var().Id("innerInstructionEventTypeToName").Op("=").Map(Index(Lit(8)).Byte()).String().Values(DictFunc(func(d Dict) {
+			for _, typ := range idl.Types {
+				if !strings.HasSuffix(typ.Name, "Event") {
+					continue
+				}
+				typeExportedName := ToCamel(typ.Name)
+				d[Id("Type_"+typeExportedName)] = Lit(ToCamel(typ.Name))
+			}
+		}))).Line()
 
 		file.Add(Empty().Var().Id("innerInstructionToNames").Op("=").Map(Index(Lit(8)).Byte()).String().Values(DictFunc(func(d Dict) {
 			for _, ins := range idl.Instructions {
 				insExportedName := ToCamel(ins.Name)
 				d[Id("Instruction_"+insExportedName)] = Lit(ins.Name)
 			}
-		})))
+		}))).Line()
 
 		file.Add(Empty().Var().Id("innerInstructionToEventName").Op("=").Map(Index(Lit(8)).Byte()).String().Values(DictFunc(func(d Dict) {
 			for _, ins := range idl.Instructions {
 				insExportedName := ToCamel(ins.Name)
 				d[Id("Instruction_"+insExportedName)] = Lit(ToCamel(ins.Name))
 			}
-		})))
+		}))).Line()
 
 		file.Add().Empty().Id(
 			`
@@ -1609,12 +1651,14 @@ type InnerInstructionEvent struct {
 	Data     EventData
 }
 
-func DecodeInnerInstructions(txData *ag_rpc.GetTransactionResult, targetProgramId ag_solanago.PublicKey) (events []*InnerInstructionEvent, err error) {
-	var innerInstructions []*InnerInstructionEvent
 
-	var tx *ag_solanago.Transaction
-	if tx, err = txData.Transaction.GetTransaction(); err != nil {
-		return nil, err
+func DecodeInnerInstructions(txData *ag_rpc.GetTransactionResult, targetProgramId ag_solanago.PublicKey) ([]*InnerInstructionEvent, []*Event, error) {
+	var innerInstructions []*InnerInstructionEvent
+	var innerEvents []*Event
+
+	tx, err := txData.Transaction.GetTransaction()
+	if err != nil {
+		return nil, nil, err
 	}
 
 	for _, innerInstruction := range txData.Meta.InnerInstructions {
@@ -1625,44 +1669,84 @@ func DecodeInnerInstructions(txData *ag_rpc.GetTransactionResult, targetProgramI
 
 			rawData, err := ag_base58.Decode(instruction.Data.String())
 			if err != nil {
-				return nil, fmt.Errorf("error decoding instruction data from Base58: %w", err)
+				return nil, nil, fmt.Errorf("error decoding instruction data: %w", err)
 			}
-
 
 			discriminator := ag_binary.TypeID(rawData[:8])
-
-			if eventType, ok := innerInstructionTypes[discriminator]; ok {
-				eventData := reflect.New(eventType).Interface().(EventData)
-				decoder := ag_binary.NewBorshDecoder(rawData[8:])
-				if err := decoder.Decode(eventData); err != nil {
-					return nil, fmt.Errorf("error decoding instruction: %w", err)
+			if discriminator == emitCpiDiscriminator {
+				i, err := decodeEmitCpiEventData(rawData)
+				if err != nil {
+					return nil, nil, fmt.Errorf("error decoding emitCpi data: %w", err)
 				}
-				event := &InnerInstructionEvent{
-					Name:     innerInstructionToEventName[discriminator],
-					Data:     eventData,
-				}
+				innerEvents = append(innerEvents, i)
 
-				accounts:= make(ag_solanago.AccountMetaSlice, len(instruction.Accounts))
-				for i, accIndex := range instruction.Accounts {
-					accounts[i] = &ag_solanago.AccountMeta{PublicKey: tx.Message.AccountKeys[accIndex]}
-				}
-
-				// add accounts to event
-				if v, ok:= event.Data.(ag_solanago.AccountsSettable); ok {
-					err := v.SetAccounts(accounts)
-					if err != nil {
-						return nil, fmt.Errorf("error setting accounts for instruction: %w", err)
-					}
-				} 
-				
-				innerInstructions = append(innerInstructions, event)
+				continue
 			}
+
+			eventType, ok := innerInstructionTypes[discriminator]
+			if !ok {
+				return nil, nil, fmt.Errorf("unknown instruction type: %v", discriminator)
+			}
+
+			eventData := reflect.New(eventType).Interface().(EventData)
+			decoder := ag_binary.NewBorshDecoder(rawData[8:])
+			if err := decoder.Decode(eventData); err != nil {
+				return nil, nil, fmt.Errorf("error decoding instruction: %w", err)
+			}
+
+			event := &InnerInstructionEvent{
+				Name: innerInstructionToEventName[discriminator],
+				Data: eventData,
+			}
+
+			accounts := make(ag_solanago.AccountMetaSlice, len(instruction.Accounts))
+			for i, accIndex := range instruction.Accounts {
+				accounts[i] = &ag_solanago.AccountMeta{PublicKey: tx.Message.AccountKeys[accIndex]}
+			}
+
+			if v, ok := event.Data.(ag_solanago.AccountsSettable); ok {
+				if err := v.SetAccounts(accounts); err != nil {
+					return nil, nil, fmt.Errorf("error setting accounts for instruction: %w", err)
+				}
+			}
+
+			innerInstructions = append(innerInstructions, event)
 		}
 	}
 
-	return innerInstructions, nil
+	return innerInstructions, innerEvents, nil
 }
 
+func decodeEmitCpiEventData(data []byte) (*Event, error) {
+	eventBinary, err := base64.StdEncoding.DecodeString(base64.StdEncoding.EncodeToString(data[8:]))
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode emitCpi event: %v", err)
+	}
+
+	eventDiscriminator := ag_binary.TypeID(eventBinary[:8])
+	eventType, ok := innerInstructionEventTypes[eventDiscriminator]
+	if !ok {
+		return nil, fmt.Errorf("unknown event type: %v", eventDiscriminator)
+	}
+
+	eventData := reflect.New(eventType).Interface().(EventData)
+	decoder := ag_binary.NewBorshDecoder(eventBinary[8:])
+	if err := eventData.UnmarshalWithDecoder(decoder); err != nil {
+		return nil, fmt.Errorf("failed to decode event data: %v", err)
+	}
+
+	return &Event{
+		Name: innerInstructionEventTypeToName[eventDiscriminator],
+		Data: eventData,
+	}, nil
+}
+
+// discriminator for emit_cpi emitted events
+var emitCpiDiscriminator = [8]byte{228, 69, 165, 46, 81, 203, 154, 29}
+
+func isEmitCpiDiscriminator(b [8]byte) bool {
+	return b == emitCpiDiscriminator
+}
 `)
 
 		files = append(files, &FileWrapper{
