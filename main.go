@@ -413,7 +413,7 @@ func DecodeInstructions(message *ag_solanago.Message) (instructions []*Instructi
 type Event struct {
 	Name   string
 	Data   EventData
-    TypeID ag_binary.TypeID
+	TypeID ag_binary.TypeID
 }	
 
 type EventData interface {
