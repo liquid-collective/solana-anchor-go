@@ -1744,7 +1744,7 @@ func DecodeEmitCpiEventData(data []byte) (*Event, error) {
 	return &Event{
 		Name:   innerInstructionEventTypeToName[eventDiscriminator],
 		Data:   eventData,
-        TypeID: eventDiscriminator,
+		TypeID: eventDiscriminator,
 	}, nil
 }
 
