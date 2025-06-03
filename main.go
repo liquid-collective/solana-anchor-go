@@ -411,8 +411,9 @@ func DecodeInstructions(message *ag_solanago.Message) (instructions []*Instructi
 		))
 		file.Add(Empty().Id(`
 type Event struct {
-	Name string
-	Data EventData
+	Name   string
+	Data   EventData
+    TypeID ag_binary.TypeID
 }	
 
 type EventData interface {
@@ -511,8 +512,9 @@ func parseEvents(base64Binaries [][]byte) (evts []*Event, err error) {
 				return
 			}
 			evts = append(evts, &Event{
-				Name: eventNames[eventDiscriminator],
-				Data: eventData,
+				Name:   eventNames[eventDiscriminator],
+				Data:   eventData,
+				TypeID: eventDiscriminator,
 			})
 		}
 	}
@@ -899,7 +901,7 @@ func decodeErrorCode(rpcErr error) (errorCode int, ok bool) {
 							}
 
 							if program != nil {
-								def := Qual(PkgSolanaGo, "Meta").Call(Qual(GetConfig().Package, "CreatePDA").Call(program, List(seeds...)))
+								def := Qual(PkgSolanaGo, "Meta").Call(Id("CreatePDA").Call(program, List(seeds...)))
 								if account.Writable {
 									def.Dot("WRITE").Call()
 								}
@@ -1594,6 +1596,7 @@ func CreatePDA(programID string, seeds ...[]byte) ag_solanago.PublicKey {
 		file := NewGoFile(idl.Metadata.Name, false)
 		// to generate import statements
 		file.Add(Var().Defs(
+			Id("_").Op("*").Qual("encoding/base64", "Encoding").Op("=").Nil(),
 			Id("_").Op("*").Qual("github.com/gagliardetto/solana-go", "PublicKey").Op("=").Nil(),
 			Id("_").Op("*").Qual("fmt", "Formatter").Op("=").Nil(),
 			Id("_").Op("*").Qual(PkgBinary, "Decoder").Op("=").Nil(),
@@ -1645,6 +1648,9 @@ func CreatePDA(programID string, seeds ...[]byte) ag_solanago.PublicKey {
 
 		file.Add().Empty().Id(
 			`
+func EventIDToName(id [8]byte) string {
+	return innerInstructionEventTypeToName[id]
+}
 
 type InnerInstructionEvent struct {
 	Name     string
@@ -1674,7 +1680,7 @@ func DecodeInnerInstructions(txData *ag_rpc.GetTransactionResult, targetProgramI
 
 			discriminator := ag_binary.TypeID(rawData[:8])
 			if discriminator == emitCpiDiscriminator {
-				i, err := decodeEmitCpiEventData(rawData)
+				i, err := DecodeEmitCpiEventData(rawData)
 				if err != nil {
 					return nil, nil, fmt.Errorf("error decoding emitCpi data: %w", err)
 				}
@@ -1717,7 +1723,7 @@ func DecodeInnerInstructions(txData *ag_rpc.GetTransactionResult, targetProgramI
 	return innerInstructions, innerEvents, nil
 }
 
-func decodeEmitCpiEventData(data []byte) (*Event, error) {
+func DecodeEmitCpiEventData(data []byte) (*Event, error) {
 	eventBinary, err := base64.StdEncoding.DecodeString(base64.StdEncoding.EncodeToString(data[8:]))
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode emitCpi event: %v", err)
@@ -1736,8 +1742,9 @@ func decodeEmitCpiEventData(data []byte) (*Event, error) {
 	}
 
 	return &Event{
-		Name: innerInstructionEventTypeToName[eventDiscriminator],
-		Data: eventData,
+		Name:   innerInstructionEventTypeToName[eventDiscriminator],
+		Data:   eventData,
+        TypeID: eventDiscriminator,
 	}, nil
 }
 
